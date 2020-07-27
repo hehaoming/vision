@@ -6,6 +6,7 @@ import errno
 import tarfile
 import zipfile
 
+import torch
 from torch.utils.model_zoo import tqdm
 
 
@@ -41,19 +42,6 @@ def check_integrity(fpath, md5=None):
     return check_md5(fpath, md5)
 
 
-def makedir_exist_ok(dirpath):
-    """
-    Python2 support for os.makedirs(.., exist_ok=True)
-    """
-    try:
-        os.makedirs(dirpath)
-    except OSError as e:
-        if e.errno == errno.EEXIST:
-            pass
-        else:
-            raise
-
-
 def download_url(url, root, filename=None, md5=None):
     """Download a file from a url and place it in root.
 
@@ -63,26 +51,26 @@ def download_url(url, root, filename=None, md5=None):
         filename (str, optional): Name to save the file under. If None, use the basename of the URL
         md5 (str, optional): MD5 checksum of the download. If None, do not check
     """
-    from six.moves import urllib
+    import urllib
 
     root = os.path.expanduser(root)
     if not filename:
         filename = os.path.basename(url)
     fpath = os.path.join(root, filename)
 
-    makedir_exist_ok(root)
+    os.makedirs(root, exist_ok=True)
 
-    # downloads file
+    # check if file is already present locally
     if check_integrity(fpath, md5):
         print('Using downloaded and verified file: ' + fpath)
-    else:
+    else:   # download the file
         try:
             print('Downloading ' + url + ' to ' + fpath)
             urllib.request.urlretrieve(
                 url, fpath,
                 reporthook=gen_bar_updater()
             )
-        except urllib.error.URLError as e:
+        except (urllib.error.URLError, IOError) as e:
             if url[:5] == 'https':
                 url = url.replace('https:', 'http:')
                 print('Failed download. Trying https -> http instead.'
@@ -93,6 +81,9 @@ def download_url(url, root, filename=None, md5=None):
                 )
             else:
                 raise e
+        # check integrity of downloaded file
+        if not check_integrity(fpath, md5):
+            raise RuntimeError("File not found or corrupted.")
 
 
 def list_dir(root, prefix=False):
@@ -104,16 +95,9 @@ def list_dir(root, prefix=False):
             only returns the name of the directories found
     """
     root = os.path.expanduser(root)
-    directories = list(
-        filter(
-            lambda p: os.path.isdir(os.path.join(root, p)),
-            os.listdir(root)
-        )
-    )
-
+    directories = [p for p in os.listdir(root) if os.path.isdir(os.path.join(root, p))]
     if prefix is True:
         directories = [os.path.join(root, d) for d in directories]
-
     return directories
 
 
@@ -128,17 +112,14 @@ def list_files(root, suffix, prefix=False):
             only returns the name of the files found
     """
     root = os.path.expanduser(root)
-    files = list(
-        filter(
-            lambda p: os.path.isfile(os.path.join(root, p)) and p.endswith(suffix),
-            os.listdir(root)
-        )
-    )
-
+    files = [p for p in os.listdir(root) if os.path.isfile(os.path.join(root, p)) and p.endswith(suffix)]
     if prefix is True:
         files = [os.path.join(root, d) for d in files]
-
     return files
+
+
+def _quota_exceeded(response: "requests.models.Response") -> bool:
+    return "Google Drive - Quota exceeded" in response.text
 
 
 def download_file_from_google_drive(file_id, root, filename=None, md5=None):
@@ -159,7 +140,7 @@ def download_file_from_google_drive(file_id, root, filename=None, md5=None):
         filename = file_id
     fpath = os.path.join(root, filename)
 
-    makedir_exist_ok(root)
+    os.makedirs(root, exist_ok=True)
 
     if os.path.isfile(fpath) and check_integrity(fpath, md5):
         print('Using downloaded and verified file: ' + fpath)
@@ -172,6 +153,14 @@ def download_file_from_google_drive(file_id, root, filename=None, md5=None):
         if token:
             params = {'id': file_id, 'confirm': token}
             response = session.get(url, params=params, stream=True)
+
+        if _quota_exceeded(response):
+            msg = (
+                f"The daily quota of the file {filename} is exceeded and it "
+                f"can't be downloaded. This is a limitation of Google Drive "
+                f"and can only be overcome by trying again later."
+            )
+            raise RuntimeError(msg)
 
         _save_response_content(response, fpath)
 
@@ -196,12 +185,20 @@ def _save_response_content(response, destination, chunk_size=32768):
         pbar.close()
 
 
+def _is_tarxz(filename):
+    return filename.endswith(".tar.xz")
+
+
 def _is_tar(filename):
     return filename.endswith(".tar")
 
 
 def _is_targz(filename):
     return filename.endswith(".tar.gz")
+
+
+def _is_tgz(filename):
+    return filename.endswith(".tgz")
 
 
 def _is_gzip(filename):
@@ -219,8 +216,11 @@ def extract_archive(from_path, to_path=None, remove_finished=False):
     if _is_tar(from_path):
         with tarfile.open(from_path, 'r') as tar:
             tar.extractall(path=to_path)
-    elif _is_targz(from_path):
+    elif _is_targz(from_path) or _is_tgz(from_path):
         with tarfile.open(from_path, 'r:gz') as tar:
+            tar.extractall(path=to_path)
+    elif _is_tarxz(from_path):
+        with tarfile.open(from_path, 'r:xz') as tar:
             tar.extractall(path=to_path)
     elif _is_gzip(from_path):
         to_path = os.path.join(to_path, os.path.splitext(os.path.basename(from_path))[0])
@@ -249,3 +249,32 @@ def download_and_extract_archive(url, download_root, extract_root=None, filename
     archive = os.path.join(download_root, filename)
     print("Extracting {} to {}".format(archive, extract_root))
     extract_archive(archive, extract_root, remove_finished)
+
+
+def iterable_to_str(iterable):
+    return "'" + "', '".join([str(item) for item in iterable]) + "'"
+
+
+def verify_str_arg(value, arg=None, valid_values=None, custom_msg=None):
+    if not isinstance(value, torch._six.string_classes):
+        if arg is None:
+            msg = "Expected type str, but got type {type}."
+        else:
+            msg = "Expected type str for argument {arg}, but got type {type}."
+        msg = msg.format(type=type(value), arg=arg)
+        raise ValueError(msg)
+
+    if valid_values is None:
+        return value
+
+    if value not in valid_values:
+        if custom_msg is not None:
+            msg = custom_msg
+        else:
+            msg = ("Unknown value '{value}' for argument {arg}. "
+                   "Valid values are {{{valid_values}}}.")
+            msg = msg.format(value=value, arg=arg,
+                             valid_values=iterable_to_str(valid_values))
+        raise ValueError(msg)
+
+    return value

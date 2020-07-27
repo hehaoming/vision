@@ -19,3 +19,7 @@ htmlcov
 */*.dylib*
 *.swp
 *.swo
+gen.yml
+.mypy_cache
+.vscode/
+*.orig

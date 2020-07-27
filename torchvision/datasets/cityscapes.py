@@ -3,7 +3,7 @@ import os
 from collections import namedtuple
 import zipfile
 
-from .utils import extract_archive
+from .utils import extract_archive, verify_str_arg, iterable_to_str
 from .vision import VisionDataset
 from PIL import Image
 
@@ -14,9 +14,9 @@ class Cityscapes(VisionDataset):
     Args:
         root (string): Root directory of dataset where directory ``leftImg8bit``
             and ``gtFine`` or ``gtCoarse`` are located.
-        split (string, optional): The image split to use, ``train``, ``test`` or ``val`` if mode="gtFine"
+        split (string, optional): The image split to use, ``train``, ``test`` or ``val`` if mode="fine"
             otherwise ``train``, ``train_extra`` or ``val``
-        mode (string, optional): The quality mode to use, ``gtFine`` or ``gtCoarse``
+        mode (string, optional): The quality mode to use, ``fine`` or ``coarse``
         target_type (string or list, optional): Type of target to use, ``instance``, ``semantic``, ``polygon``
             or ``color``. Can also be a list to output a tuple with all specified target types.
         transform (callable, optional): A function/transform that takes in a PIL image
@@ -109,22 +109,21 @@ class Cityscapes(VisionDataset):
         self.images = []
         self.targets = []
 
-        if mode not in ['fine', 'coarse']:
-            raise ValueError('Invalid mode! Please use mode="fine" or mode="coarse"')
-
-        if mode == 'fine' and split not in ['train', 'test', 'val']:
-            raise ValueError('Invalid split for mode "fine"! Please use split="train", split="test"'
-                             ' or split="val"')
-        elif mode == 'coarse' and split not in ['train', 'train_extra', 'val']:
-            raise ValueError('Invalid split for mode "coarse"! Please use split="train", split="train_extra"'
-                             ' or split="val"')
+        verify_str_arg(mode, "mode", ("fine", "coarse"))
+        if mode == "fine":
+            valid_modes = ("train", "test", "val")
+        else:
+            valid_modes = ("train", "train_extra", "val")
+        msg = ("Unknown value '{}' for argument split if mode is '{}'. "
+               "Valid values are {{{}}}.")
+        msg = msg.format(split, mode, iterable_to_str(valid_modes))
+        verify_str_arg(split, "split", valid_modes, msg)
 
         if not isinstance(target_type, list):
             self.target_type = [target_type]
-
-        if not all(t in ['instance', 'semantic', 'polygon', 'color'] for t in self.target_type):
-            raise ValueError('Invalid value for "target_type"! Valid values are: "instance", "semantic", "polygon"'
-                             ' or "color"')
+        [verify_str_arg(value, "target_type",
+                        ("instance", "semantic", "polygon", "color"))
+         for value in self.target_type]
 
         if not os.path.isdir(self.images_dir) or not os.path.isdir(self.targets_dir):
 

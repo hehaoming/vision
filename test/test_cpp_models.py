@@ -1,10 +1,16 @@
 import torch
 import os
 import unittest
-from torchvision import models, transforms, _C_tests
+from torchvision import models, transforms
+import sys
 
 from PIL import Image
 import torchvision.transforms.functional as F
+
+try:
+    from torchvision import _C_tests
+except ImportError:
+    _C_tests = None
 
 
 def process_model(model, tensor, func, name):
@@ -35,6 +41,10 @@ def read_image2():
     return torch.cat([x, x], 0)
 
 
+@unittest.skipIf(
+    sys.platform == "darwin" or True,
+    "C++ models are broken on OS X at the moment, and there's a BC breakage on master; "
+    "see https://github.com/pytorch/vision/issues/1191")
 class Tester(unittest.TestCase):
     pretrained = False
     image = read_image1()

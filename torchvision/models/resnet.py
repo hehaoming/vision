@@ -73,6 +73,12 @@ class BasicBlock(nn.Module):
 
 
 class Bottleneck(nn.Module):
+    # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
+    # while original implementation places the stride at the first 1x1 convolution(self.conv1)
+    # according to "Deep residual learning for image recognition"https://arxiv.org/abs/1512.03385.
+    # This variant is also known as ResNet V1.5 and improves accuracy according to
+    # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch.
+
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
@@ -192,7 +198,8 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def _forward_impl(self, x):
+        # See note [TorchScript super()]
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -209,6 +216,9 @@ class ResNet(nn.Module):
 
         return x
 
+    def forward(self, x):
+        return self._forward_impl(x)
+
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
     model = ResNet(block, layers, **kwargs)
@@ -221,7 +231,7 @@ def _resnet(arch, block, layers, pretrained, progress, **kwargs):
 
 def resnet18(pretrained=False, progress=True, **kwargs):
     r"""ResNet-18 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>'_
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -233,7 +243,7 @@ def resnet18(pretrained=False, progress=True, **kwargs):
 
 def resnet34(pretrained=False, progress=True, **kwargs):
     r"""ResNet-34 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>'_
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -245,7 +255,7 @@ def resnet34(pretrained=False, progress=True, **kwargs):
 
 def resnet50(pretrained=False, progress=True, **kwargs):
     r"""ResNet-50 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>'_
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -257,7 +267,7 @@ def resnet50(pretrained=False, progress=True, **kwargs):
 
 def resnet101(pretrained=False, progress=True, **kwargs):
     r"""ResNet-101 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>'_
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
@@ -269,7 +279,7 @@ def resnet101(pretrained=False, progress=True, **kwargs):
 
 def resnet152(pretrained=False, progress=True, **kwargs):
     r"""ResNet-152 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>'_
+    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet

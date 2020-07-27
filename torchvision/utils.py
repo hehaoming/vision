@@ -1,10 +1,20 @@
+from typing import Union, Optional, List, Tuple, Text, BinaryIO
+import io
+import pathlib
 import torch
 import math
 irange = range
 
 
-def make_grid(tensor, nrow=8, padding=2,
-              normalize=False, range=None, scale_each=False, pad_value=0):
+def make_grid(
+    tensor: Union[torch.Tensor, List[torch.Tensor]],
+    nrow: int = 8,
+    padding: int = 2,
+    normalize: bool = False,
+    range: Optional[Tuple[int, int]] = None,
+    scale_each: bool = False,
+    pad_value: int = 0,
+) -> torch.Tensor:
     """Make a grid of images.
 
     Args:
@@ -74,32 +84,47 @@ def make_grid(tensor, nrow=8, padding=2,
     xmaps = min(nrow, nmaps)
     ymaps = int(math.ceil(float(nmaps) / xmaps))
     height, width = int(tensor.size(2) + padding), int(tensor.size(3) + padding)
-    grid = tensor.new_full((3, height * ymaps + padding, width * xmaps + padding), pad_value)
+    num_channels = tensor.size(1)
+    grid = tensor.new_full((num_channels, height * ymaps + padding, width * xmaps + padding), pad_value)
     k = 0
     for y in irange(ymaps):
         for x in irange(xmaps):
             if k >= nmaps:
                 break
-            grid.narrow(1, y * height + padding, height - padding)\
-                .narrow(2, x * width + padding, width - padding)\
-                .copy_(tensor[k])
+            # Tensor.copy_() is a valid method but seems to be missing from the stubs
+            # https://pytorch.org/docs/stable/tensors.html#torch.Tensor.copy_
+            grid.narrow(1, y * height + padding, height - padding).narrow(  # type: ignore[attr-defined]
+                2, x * width + padding, width - padding
+            ).copy_(tensor[k])
             k = k + 1
     return grid
 
 
-def save_image(tensor, filename, nrow=8, padding=2,
-               normalize=False, range=None, scale_each=False, pad_value=0):
+def save_image(
+    tensor: Union[torch.Tensor, List[torch.Tensor]],
+    fp: Union[Text, pathlib.Path, BinaryIO],
+    nrow: int = 8,
+    padding: int = 2,
+    normalize: bool = False,
+    range: Optional[Tuple[int, int]] = None,
+    scale_each: bool = False,
+    pad_value: int = 0,
+    format: Optional[str] = None,
+) -> None:
     """Save a given Tensor into an image file.
 
     Args:
         tensor (Tensor or list): Image to be saved. If given a mini-batch tensor,
             saves the tensor as a grid of images by calling ``make_grid``.
+        fp (string or file object): A filename or a file object
+        format(Optional):  If omitted, the format to use is determined from the filename extension.
+            If a file object was used instead of a filename, this parameter should always be used.
         **kwargs: Other arguments are documented in ``make_grid``.
     """
     from PIL import Image
     grid = make_grid(tensor, nrow=nrow, padding=padding, pad_value=pad_value,
                      normalize=normalize, range=range, scale_each=scale_each)
     # Add 0.5 after unnormalizing to [0, 255] to round to nearest integer
-    ndarr = grid.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
+    ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
     im = Image.fromarray(ndarr)
-    im.save(filename)
+    im.save(fp, format=format)
